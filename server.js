@@ -1,0 +1,111 @@
+import express from 'express';
+import cors from 'cors';
+import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
+import pkg from 'pg';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import 'dotenv/config';
+
+const { Pool } = pkg;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+app.use(express.json());
+
+// CORS (разреши свои домены в .env через CORS_ORIGIN, можно пустым оставить)
+const origins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin || origins.length === 0 || origins.includes(origin))
+        return cb(null, true);
+      return cb(null, false);
+    },
+    credentials: true,
+  }),
+);
+
+// антиспам (до 60 запросов в минуту на /api/*)
+app.use(
+  '/api/',
+  rateLimit({
+    windowMs: 60_000,
+    max: 60,
+  }),
+);
+
+// === БД ===
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+const QuerySchema = z.object({
+  text: z.string().min(1).max(2000),
+  meta: z.record(z.any()).optional(),
+});
+
+// создать запись
+app.post('/api/queries', async (req, res) => {
+  const parsed = QuerySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ error: 'Invalid payload', details: parsed.error.flatten() });
+  }
+  const { text, meta } = parsed.data;
+
+  try {
+    const ip =
+      req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
+      req.socket.remoteAddress ||
+      null;
+
+    const result = await pool.query(
+      `INSERT INTO query_logs(text, ip, meta)
+       VALUES ($1, $2::inet, $3::jsonb)
+       RETURNING id, created_at`,
+      [text, ip, JSON.stringify(meta || {})],
+    );
+
+    res.status(201).json({
+      ok: true,
+      id: result.rows[0].id,
+      createdAt: result.rows[0].created_at,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'DB insert failed' });
+  }
+});
+
+// получить последние записи
+app.get('/api/queries', async (req, res) => {
+  const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, text, ip, created_at
+       FROM query_logs
+       ORDER BY created_at DESC
+       LIMIT $1`,
+      [limit],
+    );
+    res.json({ ok: true, items: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'DB select failed' });
+  }
+});
+
+// === раздача фронта (index.html, index.js, index.css) ===
+app.use(express.static(__dirname));
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+const port = process.env.PORT || 8080;
+app.listen(port, () => console.log(`API + Static listening on :${port}`));
