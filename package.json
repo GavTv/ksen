@@ -5,9 +5,10 @@
   "description": "Particles morph demo",
   "main": "index.js",
   "scripts": {
-     "start": "node server.js",
     "dev": "nodemon index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "clean-port": "kill -9 $(lsof -t -i:8080) 2>/dev/null || true",
+    "start": "npm run clean-port && node server.js"
   },
   "keywords": [],
   "author": "",

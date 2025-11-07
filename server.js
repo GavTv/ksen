@@ -15,7 +15,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(express.json());
 
-// CORS (разреши свои домены в .env через CORS_ORIGIN, можно пустым оставить)
+// ==================== CORS ====================
 const origins = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map((s) => s.trim())
@@ -32,7 +32,7 @@ app.use(
   }),
 );
 
-// антиспам (до 60 запросов в минуту на /api/*)
+// ==================== RATE LIMIT ====================
 app.use(
   '/api/',
   rateLimit({
@@ -41,7 +41,7 @@ app.use(
   }),
 );
 
-// === БД ===
+// ==================== DATABASE ====================
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const QuerySchema = z.object({
@@ -49,7 +49,7 @@ const QuerySchema = z.object({
   meta: z.record(z.any()).optional(),
 });
 
-// создать запись
+// ==================== ROUTES ====================
 app.post('/api/queries', async (req, res) => {
   const parsed = QuerySchema.safeParse(req.body);
   if (!parsed.success) {
@@ -57,8 +57,8 @@ app.post('/api/queries', async (req, res) => {
       .status(400)
       .json({ error: 'Invalid payload', details: parsed.error.flatten() });
   }
-  const { text, meta } = parsed.data;
 
+  const { text, meta } = parsed.data;
   try {
     const ip =
       req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
@@ -83,7 +83,6 @@ app.post('/api/queries', async (req, res) => {
   }
 });
 
-// получить последние записи
 app.get('/api/queries', async (req, res) => {
   const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
   try {
@@ -101,11 +100,28 @@ app.get('/api/queries', async (req, res) => {
   }
 });
 
-// === раздача фронта (index.html, index.js, index.css) ===
+// ==================== STATIC FILES ====================
 app.use(express.static(__dirname));
 app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-const port = process.env.PORT || 8080;
-app.listen(port, () => console.log(`API + Static listening on :${port}`));
+// ==================== SERVER START ====================
+const defaultPort = process.env.PORT || 8080;
+
+function startServer(port) {
+  const server = app
+    .listen(port, () => {
+      console.log(`✅ API + Static listening on :${port}`);
+    })
+    .on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.warn(`⚠️  Порт ${port} уже занят, пробую следующий...`);
+        startServer(Number(port) + 1);
+      } else {
+        console.error('❌ Server error:', err);
+      }
+    });
+}
+
+startServer(defaultPort);
