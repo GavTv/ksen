@@ -82,8 +82,12 @@ function setupEventListeners() {
 
   async function sendQueryToDB(text) {
     try {
-      // если страница открыта через наш server.js, относительный путь идеален
-      await fetch('/api/queries', {
+      const apiBase =
+        window.location.hostname === 'localhost'
+          ? 'http://localhost:8080'
+          : 'https://ksen.onrender.com';
+
+      await fetch(`${apiBase}/api/queries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -95,7 +99,7 @@ function setupEventListeners() {
         }),
       });
     } catch (e) {
-      console.warn('Failed to log query:', e);
+      console.warn('гэй', e);
     }
   }
 
