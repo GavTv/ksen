@@ -13,6 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(express.json());
 
 // ==================== CORS ====================
@@ -38,6 +39,9 @@ app.use(
   rateLimit({
     windowMs: 60_000,
     max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.ip,
   }),
 );
 
@@ -62,10 +66,7 @@ app.post('/api/queries', async (req, res) => {
 
   const { text, meta } = parsed.data;
   try {
-    const ip =
-      req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
-      req.socket.remoteAddress ||
-      null;
+    const ip = (req.ips && req.ips.length ? req.ips[0] : req.ip) || null;
 
     const result = await pool.query(
       `INSERT INTO query_logs(text, ip, meta)
