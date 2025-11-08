@@ -1,3 +1,4 @@
+// server.js (ESM)
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
@@ -13,10 +14,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// ✅ Render/прокси доверяем, чтобы req.ip работал и у rate-limit был корректный IP
 app.set('trust proxy', 1);
+
 app.use(express.json());
 
-// ==================== CORS ====================
+// === CORS ===
 const origins = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map((s) => s.trim())
@@ -33,27 +37,51 @@ app.use(
   }),
 );
 
-// ==================== RATE LIMIT ====================
+// === Anti-spam (rate-limit) ===
 app.use(
   '/api/',
   rateLimit({
     windowMs: 60_000,
     max: 60,
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req) => req.ip,
+    standardHeaders: true, // RateLimit-*
+    legacyHeaders: false, // без X-RateLimit-*
+    keyGenerator: (req) => req.ip, // с учётом trust proxy
   }),
 );
 
-// ==================== DATABASE ====================
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// === DATABASE (SSL для Render) ===
+let conn = process.env.DATABASE_URL || '';
+const isLocal = /localhost|127\.0\.0\.1/.test(conn);
+const needsSSL = conn && !isLocal;
 
+// Добавим ?sslmode=require к строке, если его нет
+if (needsSSL && !/sslmode=/.test(conn)) {
+  conn += (conn.includes('?') ? '&' : '?') + 'sslmode=require';
+}
+
+const pool = new Pool({
+  connectionString: conn,
+  ssl: needsSSL ? { rejectUnauthorized: false } : false,
+});
+
+// === Schemas ===
 const QuerySchema = z.object({
   text: z.string().min(1).max(2000),
   meta: z.record(z.any()).optional(),
 });
 
-// ==================== ROUTES ====================
+// === Routes ===
+
+// быстрая проверка БД
+app.get('/api/health', async (_req, res) => {
+  try {
+    await pool.query('select 1');
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('health DB error:', e);
+    res.status(500).json({ ok: false, error: 'db' });
+  }
+});
 
 // создать запись
 app.post('/api/queries', async (req, res) => {
@@ -63,8 +91,8 @@ app.post('/api/queries', async (req, res) => {
       .status(400)
       .json({ error: 'Invalid payload', details: parsed.error.flatten() });
   }
-
   const { text, meta } = parsed.data;
+
   try {
     const ip = (req.ips && req.ips.length ? req.ips[0] : req.ip) || null;
 
@@ -81,12 +109,12 @@ app.post('/api/queries', async (req, res) => {
       createdAt: result.rows[0].created_at,
     });
   } catch (e) {
-    console.error(e);
+    console.error('DB insert failed:', e);
     res.status(500).json({ error: 'DB insert failed' });
   }
 });
 
-// получить последние записи
+// прочитать записи
 app.get('/api/queries', async (req, res) => {
   const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
   try {
@@ -99,38 +127,27 @@ app.get('/api/queries', async (req, res) => {
     );
     res.json({ ok: true, items: rows });
   } catch (e) {
-    console.error(e);
+    console.error('DB select failed:', e);
     res.status(500).json({ error: 'DB select failed' });
   }
 });
 
-// healthcheck (для Render/мониторинга)
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true });
-});
-
-// ==================== STATIC FILES ====================
+// статика (твой фронт)
 app.use(express.static(__dirname));
-app.get('/', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
+app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
-// ==================== SERVER START ====================
+// старт сервера
 const defaultPort = process.env.PORT || 8080;
-
 function startServer(port) {
   app
-    .listen(port, () => {
-      console.log(`✅ API + Static listening on :${port}`);
-    })
+    .listen(port, () => console.log(`✅ API + Static listening on :${port}`))
     .on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
-        console.warn(`⚠️  Порт ${port} уже занят, пробую следующий...`);
+        console.warn(`⚠️  Порт ${port} занят, пробую ${Number(port) + 1}...`);
         startServer(Number(port) + 1);
       } else {
         console.error('❌ Server error:', err);
       }
     });
 }
-
 startServer(defaultPort);
