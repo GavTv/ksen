@@ -50,6 +50,8 @@ const QuerySchema = z.object({
 });
 
 // ==================== ROUTES ====================
+
+// создать запись
 app.post('/api/queries', async (req, res) => {
   const parsed = QuerySchema.safeParse(req.body);
   if (!parsed.success) {
@@ -83,6 +85,7 @@ app.post('/api/queries', async (req, res) => {
   }
 });
 
+// получить последние записи
 app.get('/api/queries', async (req, res) => {
   const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
   try {
@@ -100,6 +103,11 @@ app.get('/api/queries', async (req, res) => {
   }
 });
 
+// healthcheck (для Render/мониторинга)
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true });
+});
+
 // ==================== STATIC FILES ====================
 app.use(express.static(__dirname));
 app.get('/', (_req, res) => {
@@ -110,7 +118,7 @@ app.get('/', (_req, res) => {
 const defaultPort = process.env.PORT || 8080;
 
 function startServer(port) {
-  const server = app
+  app
     .listen(port, () => {
       console.log(`✅ API + Static listening on :${port}`);
     })
