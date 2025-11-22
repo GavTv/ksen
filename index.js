@@ -2,8 +2,28 @@ let scene;
 let camera;
 let renderer;
 let particles;
-const count = 12000;
+let textMesh;
+const count = 15000;
 let currentState = 'sphere';
+
+// Auto-resize textarea
+const textarea = document.getElementById('morphText');
+const charCount = document.getElementById('charCount');
+const counter = document.querySelector('.char-counter');
+
+textarea.addEventListener('input', function () {
+  this.style.height = 'auto';
+  this.style.height = `${Math.min(this.scrollHeight, 120)}px`;
+
+  const { length } = this.value;
+  charCount.textContent = length;
+
+  if (length >= 45) {
+    counter.classList.add('warning');
+  } else {
+    counter.classList.remove('warning');
+  }
+});
 
 function init() {
   scene = new THREE.Scene();
@@ -99,113 +119,231 @@ function setupEventListeners() {
         }),
       });
     } catch (e) {
-      console.warn('гэй', e);
+      console.warn('DB log failed:', e);
     }
   }
 
   typeBtn.addEventListener('click', () => {
     const text = input.value.trim();
     if (text) {
-      sendQueryToDB(text); // логируем
-      morphToText(text); // анимация
+      sendQueryToDB(text);
+      explodeAndShowText(text);
+      input.value = '';
+      input.style.height = 'auto';
+      charCount.textContent = '0';
+      counter.classList.remove('warning');
     }
   });
 
   input.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
       const text = input.value.trim();
       if (text) {
         sendQueryToDB(text);
-        morphToText(text);
+        explodeAndShowText(text);
+        input.value = '';
+        input.style.height = 'auto';
+        charCount.textContent = '0';
+        counter.classList.remove('warning');
       }
     }
   });
 }
 
-function createTextPoints(text) {
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  const isMobile = window.innerWidth < 480;
-  const fontSize = isMobile ? 64 : 80;
-  const padding = Math.round(fontSize * 0.2);
+function explodeAndShowText(text) {
+  currentState = 'exploding';
 
-  ctx.font = `bold ${fontSize}px Arial`;
-  const textMetrics = ctx.measureText(text);
-  const textWidth = Math.ceil(textMetrics.width);
-  const textHeight = fontSize;
+  // Stop rotation
+  gsap.to(particles.rotation, { x: 0, y: 0, z: 0, duration: 0.3 });
 
-  canvas.width = textWidth + padding * 2;
-  canvas.height = textHeight + padding * 2;
-
-  ctx.fillStyle = 'white';
-  ctx.font = `bold ${fontSize}px Arial`;
-  ctx.textBaseline = 'middle';
-  ctx.textAlign = 'center';
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
-
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const pixels = imageData.data;
-  const points = [];
-
-  const sampleProb = isMobile ? 0.5 : 0.4;
-  const denom = isMobile ? fontSize * 0.9 : fontSize * 1.2;
-
-  for (let i = 0; i < pixels.length; i += 4) {
-    if (pixels[i] > 128 && Math.random() < sampleProb) {
-      const x = (i / 4) % canvas.width;
-      const y = Math.floor(i / 4 / canvas.width);
-      points.push({
-        x: (x - canvas.width / 2) / denom,
-        y: -(y - canvas.height / 2) / denom,
-      });
-    }
-  }
-
-  return points;
-}
-
-function morphToText(text) {
-  currentState = 'text';
-  const textPoints = createTextPoints(text);
+  // Explode particles outward
   const positions = particles.geometry.attributes.position.array;
   const targetPositions = new Float32Array(count * 3);
 
-  gsap.to(particles.rotation, { x: 0, y: 0, z: 0, duration: 0.5 });
-
   for (let i = 0; i < count; i++) {
-    if (i < textPoints.length) {
-      targetPositions[i * 3] = textPoints[i].x;
-      targetPositions[i * 3 + 1] = textPoints[i].y;
-      targetPositions[i * 3 + 2] = 0;
-    } else {
-      const angle = Math.random() * Math.PI * 2;
-      const radius = Math.random() * 20 + 10;
-      targetPositions[i * 3] = Math.cos(angle) * radius;
-      targetPositions[i * 3 + 1] = Math.sin(angle) * radius;
-      targetPositions[i * 3 + 2] = (Math.random() - 0.5) * 10;
-    }
+    const currentX = positions[i * 3];
+    const currentY = positions[i * 3 + 1];
+    const currentZ = positions[i * 3 + 2];
+
+    // Calculate direction from center and push outward
+    const distance = Math.sqrt(
+      currentX * currentX + currentY * currentY + currentZ * currentZ,
+    );
+    const multiplier = 3 + Math.random() * 2;
+
+    targetPositions[i * 3] = currentX * multiplier;
+    targetPositions[i * 3 + 1] = currentY * multiplier;
+    targetPositions[i * 3 + 2] = currentZ * multiplier;
   }
 
+  // Animate explosion (slower)
   for (let i = 0; i < positions.length; i += 3) {
     gsap.to(particles.geometry.attributes.position.array, {
       [i]: targetPositions[i],
       [i + 1]: targetPositions[i + 1],
       [i + 2]: targetPositions[i + 2],
-      duration: 2,
-      ease: 'power2.inOut',
+      duration: 2.0,
+      ease: 'power2.out',
       onUpdate: () => {
         particles.geometry.attributes.position.needsUpdate = true;
       },
     });
   }
 
+  // Fade out particles (slower)
+  gsap.to(particles.material, {
+    opacity: 0,
+    duration: 2.0,
+    ease: 'power2.out',
+  });
+
+  // Show text after particles start exploding (longer delay)
   setTimeout(() => {
-    morphToCircle();
-  }, 4000);
+    showText(text);
+  }, 600);
+
+  // Return particles after text disappears
+  setTimeout(() => {
+    returnParticles();
+  }, 5500);
 }
 
-function morphToCircle() {
-  currentState = 'sphere';
+function showText(text) {
+  // Remove old text if exists
+  if (textMesh) {
+    scene.remove(textMesh);
+  }
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+
+  const isMobile = window.innerWidth < 640;
+  const fontSize = isMobile ? 48 : 64;
+  const lineHeight = fontSize * 1.3;
+  const padding = 30;
+
+  ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+
+  // Split text into lines with max 25 characters per line
+  function wrapText(text) {
+    const words = text.split(' ');
+    const lines = [];
+    let currentLine = '';
+
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+
+      if (testLine.length <= 25) {
+        currentLine = testLine;
+      } else {
+        if (currentLine) {
+          lines.push(currentLine);
+        }
+        currentLine = word;
+      }
+    }
+
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    return lines;
+  }
+
+  const lines = wrapText(text);
+
+  // Calculate canvas dimensions
+  let maxLineWidth = 0;
+  lines.forEach((line) => {
+    const { width } = ctx.measureText(line);
+    if (width > maxLineWidth) maxLineWidth = width;
+  });
+
+  canvas.width = maxLineWidth + padding * 2;
+  canvas.height = lines.length * lineHeight + padding * 2;
+
+  // Transparent background
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Draw text with shadow for better visibility
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+  ctx.shadowBlur = 20;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+
+  ctx.fillStyle = 'white';
+  ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+
+  lines.forEach((line, index) => {
+    const y = padding + lineHeight / 2 + index * lineHeight;
+    ctx.fillText(line, canvas.width / 2, y);
+  });
+
+  // Create texture from canvas
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+
+  // Create material and mesh
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    side: THREE.DoubleSide,
+    opacity: 0,
+  });
+
+  // Адаптивный размер плоскости в зависимости от количества линий
+  const aspectRatio = canvas.width / canvas.height;
+
+  // Чем больше линий, тем больше плоскость
+  let baseWidth;
+  if (isMobile) {
+    baseWidth = lines.length > 1 ? 10 : 8;
+  } else {
+    baseWidth = lines.length > 1 ? 14 : 12;
+  }
+
+  const planeWidth = baseWidth;
+  const planeHeight = planeWidth / aspectRatio;
+
+  const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+  textMesh = new THREE.Mesh(geometry, material);
+
+  scene.add(textMesh);
+
+  // Slowly fade in text
+  gsap.to(textMesh.material, {
+    opacity: 1,
+    duration: 2.5,
+    ease: 'power2.out',
+  });
+
+  // Auto hide after 3 seconds
+  setTimeout(() => {
+    hideText();
+  }, 3000);
+}
+
+function hideText() {
+  if (textMesh) {
+    gsap.to(textMesh.material, {
+      opacity: 0,
+      duration: 1,
+      ease: 'power2.in',
+      onComplete: () => {
+        scene.remove(textMesh);
+        textMesh = null;
+      },
+    });
+  }
+}
+
+function returnParticles() {
+  currentState = 'returning';
+
   const positions = particles.geometry.attributes.position.array;
   const targetPositions = new Float32Array(count * 3);
   const colors = particles.geometry.attributes.color.array;
@@ -238,6 +376,13 @@ function morphToCircle() {
     colors[i * 3 + 2] = color.b;
   }
 
+  // Fade in particles
+  gsap.to(particles.material, {
+    opacity: 0.8,
+    duration: 1.5,
+    ease: 'power2.in',
+  });
+
   for (let i = 0; i < positions.length; i += 3) {
     gsap.to(particles.geometry.attributes.position.array, {
       [i]: targetPositions[i],
@@ -261,15 +406,28 @@ function morphToCircle() {
       onUpdate: () => {
         particles.geometry.attributes.color.needsUpdate = true;
       },
+      onComplete: () => {
+        if (i === colors.length - 3) {
+          currentState = 'sphere';
+        }
+      },
     });
   }
 }
 
 function animate() {
   requestAnimationFrame(animate);
-  if (currentState === 'sphere') {
+
+  // Rotate sphere only when in sphere state
+  if (currentState === 'sphere' && particles) {
     particles.rotation.y += 0.002;
   }
+
+  // Slight floating animation for text
+  if (textMesh) {
+    textMesh.position.y = Math.sin(Date.now() * 0.001) * 0.15;
+  }
+
   renderer.render(scene, camera);
 }
 
