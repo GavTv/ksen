@@ -111,13 +111,49 @@ body {
   transform: translateY(1px);
 }
 
-.char-counter {
+#typeBtn:disabled,
+#morphText:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.input-meta {
   position: absolute;
   bottom: -1.15rem;
+  left: 0.5rem;
   right: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.history-count {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+  white-space: nowrap;
+}
+
+.clear-history-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.clear-history-btn:hover {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.char-counter {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.35);
   transition: color 0.3s ease;
+  white-space: nowrap;
 }
 
 .char-counter.warning {
@@ -149,8 +185,9 @@ body {
     border-radius: 8px;
   }
 
-  .char-counter {
-    bottom: -1rem;
-    font-size: 10px;
+  .char-counter,
+  .history-count,
+  .clear-history-btn {
+    font-size: 9px;
   }
 }

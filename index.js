@@ -5,7 +5,11 @@ let particles;
 let textMesh;
 const count = 15000;
 const MAX_TEXT_LENGTH = 70;
+const MAX_HISTORY_MESSAGES = 20;
+const CHAT_STORAGE_KEY = 'ksen_chat_history';
 let currentState = 'sphere';
+let isAskBusy = false;
+let chatHistory = loadChatHistory();
 
 const morphInput = document.getElementById('morphText');
 const charCount = document.getElementById('charCount');
@@ -98,6 +102,7 @@ function init() {
   createParticles();
   setupEventListeners();
   setupMobileViewport();
+  updateHistoryIndicator();
   animate();
 }
 
@@ -152,60 +157,200 @@ function createParticles() {
   scene.add(particles);
 }
 
+function loadChatHistory() {
+  try {
+    const raw = sessionStorage.getItem(CHAT_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveChatHistory() {
+  sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatHistory));
+}
+
+function pushChatMessage(role, text) {
+  chatHistory.push({ role, text });
+  if (chatHistory.length > MAX_HISTORY_MESSAGES) {
+    chatHistory = chatHistory.slice(-MAX_HISTORY_MESSAGES);
+  }
+  saveChatHistory();
+  updateHistoryIndicator();
+}
+
+function clearChatHistory() {
+  chatHistory = [];
+  sessionStorage.removeItem(CHAT_STORAGE_KEY);
+  updateHistoryIndicator();
+}
+
+function updateHistoryIndicator() {
+  const el = document.getElementById('historyCount');
+  if (!el) return;
+  const turns = Math.floor(chatHistory.length / 2);
+  el.textContent = turns > 0 ? `${turns} в диалоге` : '';
+}
+
+function getApiBase() {
+  const { hostname, port, protocol } = window.location;
+
+  if (protocol === 'file:') {
+    return 'http://localhost:8080';
+  }
+
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    if (port === '8080') return '';
+    return `${protocol}//${hostname}:8080`;
+  }
+
+  if (hostname === 'ksenus.ru' || hostname === 'www.ksenus.ru') {
+    return 'https://ksen.onrender.com';
+  }
+
+  return '';
+}
+
+function getRequestMeta() {
+  return {
+    ua: navigator.userAgent,
+    viewport: { w: window.innerWidth, h: window.innerHeight },
+  };
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function hideTextAsync() {
+  return new Promise((resolve) => {
+    if (!textMesh) {
+      resolve();
+      return;
+    }
+
+    gsap.to(textMesh.material, {
+      opacity: 0,
+      duration: 0.8,
+      ease: 'power2.in',
+      onComplete: () => {
+        disposeTextMesh();
+        resolve();
+      },
+    });
+  });
+}
+
+async function fetchAiAnswer(question, history, attempt = 1) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+  try {
+    const response = await fetch(`${getApiBase()}/api/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: question,
+        history,
+        meta: getRequestMeta(),
+      }),
+      signal: controller.signal,
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      if (data.retryable && attempt < 2) {
+        showText('Секунду…');
+        await delay(1200);
+        return fetchAiAnswer(question, history, attempt + 1);
+      }
+      throw new Error(data.error || 'AI request failed');
+    }
+
+    return data.answer;
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error('Ответ занял слишком много времени. Попробуй ещё раз.');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function setFormBusy(busy) {
+  isAskBusy = busy;
+  morphInput.disabled = busy;
+  document.getElementById('typeBtn').disabled = busy;
+}
+
+function clearInput() {
+  morphInput.value = '';
+  charCount.textContent = '0';
+  counter.classList.remove('warning');
+}
+
+async function runAskFlow(question) {
+  if (isAskBusy) return;
+
+  setFormBusy(true);
+  clearInput();
+
+  try {
+    startExplosion();
+    await delay(600);
+    showText('Думаю…');
+
+    let answer;
+    try {
+      answer = await fetchAiAnswer(question, [...chatHistory]);
+      pushChatMessage('user', question);
+      pushChatMessage('model', answer);
+    } catch (e) {
+      console.warn('AI failed:', e);
+      answer = e.message || 'Не удалось получить ответ';
+    }
+
+    showText(answer);
+
+    await delay(4000);
+    await hideTextAsync();
+    returnParticles();
+    await delay(2200);
+  } finally {
+    setFormBusy(false);
+  }
+}
+
 function setupEventListeners() {
   const typeBtn = document.getElementById('typeBtn');
   const input = document.getElementById('morphText');
 
-  async function sendQueryToDB(text) {
-    try {
-      const apiBase =
-        window.location.hostname === 'localhost'
-          ? 'http://localhost:8080'
-          : 'https://ksen.onrender.com';
-
-      await fetch(`${apiBase}/api/queries`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          meta: {
-            ua: navigator.userAgent,
-            viewport: { w: window.innerWidth, h: window.innerHeight },
-          },
-        }),
-      });
-    } catch (e) {
-      console.warn('DB log failed:', e);
-    }
+  function submitQuestion() {
+    const text = input.value.trim();
+    if (text) runAskFlow(text);
   }
 
-  typeBtn.addEventListener('click', () => {
-    const text = input.value.trim();
-    if (text) {
-      sendQueryToDB(text);
-      explodeAndShowText(text);
-      input.value = '';
-      charCount.textContent = '0';
-      counter.classList.remove('warning');
-    }
-  });
+  typeBtn.addEventListener('click', submitQuestion);
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const text = input.value.trim();
-      if (text) {
-        sendQueryToDB(text);
-        explodeAndShowText(text);
-        input.value = '';
-        charCount.textContent = '0';
-        counter.classList.remove('warning');
-      }
+      submitQuestion();
     }
+  });
+
+  document.getElementById('clearHistoryBtn').addEventListener('click', () => {
+    clearChatHistory();
   });
 }
 
-function explodeAndShowText(text) {
+function startExplosion() {
   currentState = 'exploding';
 
   // Stop rotation
@@ -250,15 +395,6 @@ function explodeAndShowText(text) {
     duration: 1.2,
     ease: 'power2.out',
   });
-
-  // Show text after particles start exploding (longer delay)
-  setTimeout(() => {
-    showText(text);
-  }, 600);
-
-  setTimeout(() => {
-    returnParticles();
-  }, 6500);
 }
 
 function disposeTextMesh() {
@@ -297,7 +433,8 @@ function showText(text) {
 
   ctx.font = `bold ${fontSize}px Arial, sans-serif`;
 
-  // Split text into lines with max 25 characters per line
+  const maxCharsPerLine = isMobile ? 28 : 36;
+
   function wrapText(text) {
     const words = text.split(' ');
     const lines = [];
@@ -307,7 +444,7 @@ function showText(text) {
       const word = words[i];
       const testLine = currentLine ? `${currentLine} ${word}` : word;
 
-      if (testLine.length <= 25) {
+      if (testLine.length <= maxCharsPerLine) {
         currentLine = testLine;
       } else {
         if (currentLine) {
@@ -381,26 +518,9 @@ function showText(text) {
 
   gsap.to(textMesh.material, {
     opacity: 1,
-    duration: 1,
+    duration: 0.8,
     ease: 'power2.out',
   });
-
-  setTimeout(() => {
-    hideText();
-  }, 4500);
-}
-
-function hideText() {
-  if (textMesh) {
-    gsap.to(textMesh.material, {
-      opacity: 0,
-      duration: 0.8,
-      ease: 'power2.in',
-      onComplete: () => {
-        disposeTextMesh();
-      },
-    });
-  }
 }
 
 function returnParticles() {

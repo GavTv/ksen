@@ -7,6 +7,7 @@ import pkg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
+import { askGemini } from './gemini.js';
 
 const { Pool } = pkg;
 
@@ -29,8 +30,12 @@ const origins = (process.env.CORS_ORIGIN || '')
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin || origins.length === 0 || origins.includes(origin))
+      if (!origin || origins.length === 0 || origins.includes(origin)) {
         return cb(null, true);
+      }
+      if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+        return cb(null, true);
+      }
       return cb(null, false);
     },
     credentials: true,
@@ -64,10 +69,56 @@ const pool = new Pool({
   ssl: needsSSL ? { rejectUnauthorized: false } : false,
 });
 
+const dbLoggingEnabled =
+  process.env.DISABLE_DB_LOG !== '1' && Boolean(conn.trim());
+
+async function logQuery(text, ip, meta) {
+  if (!dbLoggingEnabled) return null;
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO query_logs(text, ip, meta)
+       VALUES ($1, $2::inet, $3::jsonb)
+       RETURNING id`,
+      [text, ip, JSON.stringify(meta || {})],
+    );
+    return result.rows[0].id;
+  } catch (dbErr) {
+    if (dbErr.code === '28000' || dbErr.code === '3D000') {
+      console.warn('DB log skipped: database not configured locally');
+    } else {
+      console.warn('DB log failed:', dbErr.message);
+    }
+    return null;
+  }
+}
+
 // === Schemas ===
 const QuerySchema = z.object({
   text: z.string().min(1).max(2000),
   meta: z.record(z.any()).optional(),
+});
+
+const AskSchema = z.object({
+  text: z.string().min(1).max(500),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'model']),
+        text: z.string().min(1).max(2000),
+      }),
+    )
+    .max(20)
+    .optional(),
+  meta: z.record(z.any()).optional(),
+});
+
+const askLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip,
 });
 
 // === Routes ===
@@ -111,6 +162,43 @@ app.post('/api/queries', async (req, res) => {
   } catch (e) {
     console.error('DB insert failed:', e);
     res.status(500).json({ error: 'DB insert failed' });
+  }
+});
+
+// вопрос → Gemini → ответ
+app.post('/api/ask', askLimiter, async (req, res) => {
+  const parsed = AskSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ error: 'Invalid payload', details: parsed.error.flatten() });
+  }
+
+  const { text, history, meta } = parsed.data;
+
+  try {
+    const answer = await askGemini(text, history || []);
+    const ip = (req.ips && req.ips.length ? req.ips[0] : req.ip) || null;
+    const logId = await logQuery(text, ip, {
+      ...(meta || {}),
+      answer,
+      historyLength: history?.length || 0,
+      source: 'gemini',
+    });
+
+    res.json({ ok: true, answer, id: logId });
+  } catch (e) {
+    if (e.code === 'CONFIG') {
+      return res.status(503).json({ error: 'AI is not configured', retryable: false });
+    }
+    if (e.status !== 503 && e.status !== 429) {
+      console.error('Ask failed:', e.message, e.details || '');
+    }
+    const status = e.status === 503 ? 503 : 502;
+    res.status(status).json({
+      error: e.userMessage || 'AI request failed',
+      retryable: Boolean(e.retryable),
+    });
   }
 });
 
