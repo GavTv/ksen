@@ -6,12 +6,24 @@
 
 html {
   font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html,
+body {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
 }
 
 body {
   background: #000;
-  overflow: hidden;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: white;
 }
 
@@ -21,11 +33,12 @@ body {
   left: 0;
   width: 100%;
   height: 100%;
+  z-index: 0;
 }
 
 .input-container {
   position: fixed;
-  bottom: 2rem;
+  bottom: max(1rem, env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
@@ -44,21 +57,22 @@ body {
   flex: 1;
   min-width: 0;
   height: 3rem;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.28);
   padding: 0 1rem;
   color: #ffffff;
-  font-size: 0.95rem;
+  font-size: 16px;
   font-weight: 600;
   border-radius: 12px;
-  backdrop-filter: blur(4px);
-  transition: all 0.3s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
   text-align: left;
   caret-color: #fff;
   white-space: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
   line-height: 3rem;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #morphText::placeholder {
@@ -77,13 +91,13 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.12);
   padding: 0.75rem 1.25rem;
   color: white;
-  font-size: 0.95rem;
+  font-size: 16px;
   font-weight: 600;
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(4px);
+  transition: background 0.2s ease, transform 0.2s ease;
   white-space: nowrap;
+  -webkit-font-smoothing: antialiased;
 }
 
 #typeBtn:hover {
@@ -99,7 +113,7 @@ body {
   position: absolute;
   bottom: -1.5rem;
   right: 1rem;
-  font-size: 0.75rem;
+  font-size: 12px;
   color: rgba(255, 255, 255, 0.4);
   transition: color 0.3s ease;
 }
@@ -109,24 +123,15 @@ body {
 }
 
 @media (max-width: 640px) {
-  html {
-    font-size: 14px;
-  }
-
   .input-container {
-    bottom: 1.5rem;
     width: 94%;
   }
 
   #morphText {
-    font-size: 0.85rem;
     padding: 0 0.75rem;
-    height: 2.75rem;
-    line-height: 2.75rem;
   }
 
   #typeBtn {
     padding: 0.65rem 1rem;
-    font-size: 0.85rem;
   }
 }

@@ -22,23 +22,82 @@ morphInput.addEventListener('input', function () {
   }
 });
 
+const inputContainer = document.querySelector('.input-container');
+const viewportContainer = document.getElementById('container');
+
+function getViewportMetrics() {
+  const vv = window.visualViewport;
+  if (!vv) {
+    return {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      offsetTop: 0,
+      offsetLeft: 0,
+    };
+  }
+
+  return {
+    width: vv.width,
+    height: vv.height,
+    offsetTop: vv.offsetTop,
+    offsetLeft: vv.offsetLeft,
+  };
+}
+
+function updateViewportLayout() {
+  const { width, height, offsetTop, offsetLeft } = getViewportMetrics();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  if (renderer && camera) {
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+    renderer.setPixelRatio(dpr);
+    renderer.setSize(width, height);
+  }
+
+  if (viewportContainer) {
+    viewportContainer.style.width = `${width}px`;
+    viewportContainer.style.height = `${height}px`;
+    viewportContainer.style.top = `${offsetTop}px`;
+    viewportContainer.style.left = `${offsetLeft}px`;
+  }
+
+  if (inputContainer) {
+    const keyboardGap = window.innerHeight - height - offsetTop;
+    const bottom = Math.max(12, keyboardGap + 12);
+    inputContainer.style.bottom = `${bottom}px`;
+  }
+}
+
+function setupMobileViewport() {
+  morphInput.addEventListener('focus', () => {
+    requestAnimationFrame(() => {
+      window.scrollTo(0, 0);
+      updateViewportLayout();
+    });
+  });
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', updateViewportLayout);
+    window.visualViewport.addEventListener('scroll', updateViewportLayout);
+  }
+
+  window.addEventListener('resize', updateViewportLayout);
+  updateViewportLayout();
+}
+
 function init() {
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(
-    75,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1000,
-  );
+  camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
   renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setClearColor(0x000000);
-  document.getElementById('container').appendChild(renderer.domElement);
+  viewportContainer.appendChild(renderer.domElement);
 
   camera.position.z = 25;
 
   createParticles();
   setupEventListeners();
+  setupMobileViewport();
   animate();
 }
 
@@ -234,7 +293,7 @@ function showText(text) {
   const fontSize = isMobile ? 52 : 72;
   const lineHeight = fontSize * 1.35;
   const padding = 36;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
 
   ctx.font = `bold ${fontSize}px Arial, sans-serif`;
 
@@ -280,6 +339,8 @@ function showText(text) {
   canvas.width = Math.ceil(logicalW * dpr);
   canvas.height = Math.ceil(logicalH * dpr);
   ctx.scale(dpr, dpr);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.clearRect(0, 0, logicalW, logicalH);
   drawTextOnCanvas(ctx, lines, logicalW, fontSize, lineHeight, padding);
 
@@ -426,11 +487,5 @@ function animate() {
 
   renderer.render(scene, camera);
 }
-
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
 
 init();
