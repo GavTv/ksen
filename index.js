@@ -4,21 +4,18 @@ let renderer;
 let particles;
 let textMesh;
 const count = 15000;
+const MAX_TEXT_LENGTH = 70;
 let currentState = 'sphere';
 
-// Auto-resize textarea
-const textarea = document.getElementById('morphText');
+const morphInput = document.getElementById('morphText');
 const charCount = document.getElementById('charCount');
 const counter = document.querySelector('.char-counter');
 
-textarea.addEventListener('input', function () {
-  this.style.height = 'auto';
-  this.style.height = `${Math.min(this.scrollHeight, 120)}px`;
-
+morphInput.addEventListener('input', function () {
   const { length } = this.value;
   charCount.textContent = length;
 
-  if (length >= 45) {
+  if (length >= MAX_TEXT_LENGTH - 7) {
     counter.classList.add('warning');
   } else {
     counter.classList.remove('warning');
@@ -129,21 +126,19 @@ function setupEventListeners() {
       sendQueryToDB(text);
       explodeAndShowText(text);
       input.value = '';
-      input.style.height = 'auto';
       charCount.textContent = '0';
       counter.classList.remove('warning');
     }
   });
 
-  input.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
       e.preventDefault();
       const text = input.value.trim();
       if (text) {
         sendQueryToDB(text);
         explodeAndShowText(text);
         input.value = '';
-        input.style.height = 'auto';
         charCount.textContent = '0';
         counter.classList.remove('warning');
       }
@@ -191,10 +186,9 @@ function explodeAndShowText(text) {
     });
   }
 
-  // Fade out particles (slower)
   gsap.to(particles.material, {
     opacity: 0,
-    duration: 2.0,
+    duration: 1.2,
     ease: 'power2.out',
   });
 
@@ -203,25 +197,44 @@ function explodeAndShowText(text) {
     showText(text);
   }, 600);
 
-  // Return particles after text disappears
   setTimeout(() => {
     returnParticles();
-  }, 5500);
+  }, 6500);
+}
+
+function disposeTextMesh() {
+  if (!textMesh) return;
+  scene.remove(textMesh);
+  textMesh.geometry.dispose();
+  textMesh.material.map?.dispose();
+  textMesh.material.dispose();
+  textMesh = null;
+}
+
+function drawTextOnCanvas(ctx, lines, width, fontSize, lineHeight, padding) {
+  ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffffff';
+
+  lines.forEach((line, index) => {
+    ctx.fillText(line, width / 2, padding + lineHeight / 2 + index * lineHeight);
+  });
 }
 
 function showText(text) {
-  // Remove old text if exists
   if (textMesh) {
-    scene.remove(textMesh);
+    disposeTextMesh();
   }
 
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
 
   const isMobile = window.innerWidth < 640;
-  const fontSize = isMobile ? 48 : 64;
-  const lineHeight = fontSize * 1.3;
-  const padding = 30;
+  const fontSize = isMobile ? 52 : 72;
+  const lineHeight = fontSize * 1.35;
+  const padding = 36;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
   ctx.font = `bold ${fontSize}px Arial, sans-serif`;
 
@@ -261,38 +274,27 @@ function showText(text) {
     if (width > maxLineWidth) maxLineWidth = width;
   });
 
-  canvas.width = maxLineWidth + padding * 2;
-  canvas.height = lines.length * lineHeight + padding * 2;
+  const logicalW = maxLineWidth + padding * 2;
+  const logicalH = lines.length * lineHeight + padding * 2;
 
-  // Transparent background
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  canvas.width = Math.ceil(logicalW * dpr);
+  canvas.height = Math.ceil(logicalH * dpr);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, logicalW, logicalH);
+  drawTextOnCanvas(ctx, lines, logicalW, fontSize, lineHeight, padding);
 
-  // Draw text with shadow for better visibility
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-  ctx.shadowBlur = 20;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 0;
-
-  ctx.fillStyle = 'white';
-  ctx.font = `bold ${fontSize}px Arial, sans-serif`;
-  ctx.textBaseline = 'middle';
-  ctx.textAlign = 'center';
-
-  lines.forEach((line, index) => {
-    const y = padding + lineHeight / 2 + index * lineHeight;
-    ctx.fillText(line, canvas.width / 2, y);
-  });
-
-  // Create texture from canvas
   const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
   texture.needsUpdate = true;
 
-  // Create material and mesh
   const material = new THREE.MeshBasicMaterial({
     map: texture,
     transparent: true,
     side: THREE.DoubleSide,
     opacity: 0,
+    depthTest: false,
+    depthWrite: false,
   });
 
   // Адаптивный размер плоскости в зависимости от количества линий
@@ -311,31 +313,30 @@ function showText(text) {
 
   const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
   textMesh = new THREE.Mesh(geometry, material);
+  textMesh.renderOrder = 10;
+  textMesh.position.set(0, 0, 0);
 
   scene.add(textMesh);
 
-  // Slowly fade in text
   gsap.to(textMesh.material, {
     opacity: 1,
-    duration: 2.5,
+    duration: 1,
     ease: 'power2.out',
   });
 
-  // Auto hide after 3 seconds
   setTimeout(() => {
     hideText();
-  }, 3000);
+  }, 4500);
 }
 
 function hideText() {
   if (textMesh) {
     gsap.to(textMesh.material, {
       opacity: 0,
-      duration: 1,
+      duration: 0.8,
       ease: 'power2.in',
       onComplete: () => {
-        scene.remove(textMesh);
-        textMesh = null;
+        disposeTextMesh();
       },
     });
   }
@@ -421,11 +422,6 @@ function animate() {
   // Rotate sphere only when in sphere state
   if (currentState === 'sphere' && particles) {
     particles.rotation.y += 0.002;
-  }
-
-  // Slight floating animation for text
-  if (textMesh) {
-    textMesh.position.y = Math.sin(Date.now() * 0.001) * 0.15;
   }
 
   renderer.render(scene, camera);

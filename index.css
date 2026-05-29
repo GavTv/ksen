@@ -42,31 +42,34 @@ body {
 
 #morphText {
   flex: 1;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  padding: 0.75rem 1rem;
-  color: white;
+  min-width: 0;
+  height: 3rem;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  padding: 0 1rem;
+  color: #ffffff;
   font-size: 0.95rem;
-  font-weight: 500;
+  font-weight: 600;
   border-radius: 12px;
   backdrop-filter: blur(4px);
   transition: all 0.3s ease;
   text-align: left;
   caret-color: #fff;
-  resize: none;
-  overflow: hidden;
-  min-height: 3rem;
-  line-height: 1.4;
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  line-height: 3rem;
+}
+
+#morphText::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+  opacity: 1;
 }
 
 #morphText:focus {
   outline: none;
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
-}
-
-#morphText::placeholder {
-  color: rgba(255, 255, 255, 0.5);
 }
 
 #typeBtn {
@@ -117,7 +120,9 @@ body {
 
   #morphText {
     font-size: 0.85rem;
-    padding: 0.65rem 0.85rem;
+    padding: 0 0.75rem;
+    height: 2.75rem;
+    line-height: 2.75rem;
   }
 
   #typeBtn {

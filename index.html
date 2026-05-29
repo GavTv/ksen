@@ -11,15 +11,16 @@
 
     <div class="input-container">
       <div class="input-wrapper">
-        <textarea
+        <input
+          type="text"
           id="morphText"
-          placeholder="Enter your text (max 50 characters)..."
-          maxlength="50"
-          rows="1"
-        ></textarea>
+          maxlength="70"
+          autocomplete="off"
+          placeholder="Enter your text"
+        />
         <button id="typeBtn">Create</button>
       </div>
-      <div class="char-counter"><span id="charCount">0</span>/50</div>
+      <div class="char-counter"><span id="charCount">0</span>/70</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
