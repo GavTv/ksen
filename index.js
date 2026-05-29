@@ -304,7 +304,6 @@ async function runAskFlow(question) {
   try {
     startExplosion();
     await delay(600);
-    showText('Думаю…');
 
     let answer;
     try {
