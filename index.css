@@ -42,35 +42,35 @@ body {
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
-  width: 90%;
-  max-width: 600px;
-  padding: 0 1rem;
+  width: min(92%, 520px);
+  max-width: 520px;
+  padding: 0 0.5rem;
 }
 
 .input-wrapper {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.4rem;
   align-items: center;
 }
 
 #morphText {
   flex: 1;
   min-width: 0;
-  height: 3rem;
+  height: 2.5rem;
   background: rgba(0, 0, 0, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  padding: 0 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  padding: 0 0.75rem;
   color: #ffffff;
   font-size: 16px;
-  font-weight: 600;
-  border-radius: 12px;
+  font-weight: 500;
+  border-radius: 10px;
   transition: background 0.2s ease, border-color 0.2s ease;
   text-align: left;
   caret-color: #fff;
   white-space: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
-  line-height: 3rem;
+  line-height: 2.5rem;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -87,13 +87,15 @@ body {
 }
 
 #typeBtn {
+  flex-shrink: 0;
+  height: 2.5rem;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  padding: 0.75rem 1.25rem;
+  padding: 0 0.85rem;
   color: white;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
-  border-radius: 12px;
+  border-radius: 10px;
   cursor: pointer;
   transition: background 0.2s ease, transform 0.2s ease;
   white-space: nowrap;
@@ -111,10 +113,10 @@ body {
 
 .char-counter {
   position: absolute;
-  bottom: -1.5rem;
-  right: 1rem;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.4);
+  bottom: -1.15rem;
+  right: 0.5rem;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
   transition: color 0.3s ease;
 }
 
@@ -124,14 +126,31 @@ body {
 
 @media (max-width: 640px) {
   .input-container {
-    width: 94%;
+    width: min(78%, 320px);
+  }
+
+  .input-wrapper {
+    gap: 0.3rem;
   }
 
   #morphText {
-    padding: 0 0.75rem;
+    height: 2.125rem;
+    line-height: 2.125rem;
+    padding: 0 0.6rem;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 500;
   }
 
   #typeBtn {
-    padding: 0.65rem 1rem;
+    height: 2.125rem;
+    padding: 0 0.65rem;
+    font-size: 13px;
+    border-radius: 8px;
+  }
+
+  .char-counter {
+    bottom: -1rem;
+    font-size: 10px;
   }
 }
