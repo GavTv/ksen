@@ -9,6 +9,7 @@ const MAX_HISTORY_MESSAGES = 20;
 const CHAT_STORAGE_KEY = 'ksen_chat_history';
 let currentState = 'sphere';
 let isAskBusy = false;
+let morphAnim = null;
 let chatHistory = loadChatHistory();
 
 const morphInput = document.getElementById('morphText');
@@ -91,36 +92,68 @@ function setupMobileViewport() {
 }
 
 function init() {
-  scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
-  renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setClearColor(0x000000);
-  viewportContainer.appendChild(renderer.domElement);
-
-  camera.position.z = 25;
-
-  createParticles();
   setupEventListeners();
   setupMobileViewport();
   updateHistoryIndicator();
-  animate();
+
+  if (typeof THREE === 'undefined') {
+    showInitError('Не удалось загрузить 3D-библиотеку. Проверь интернет и обнови страницу.');
+    return;
+  }
+
+  if (typeof gsap === 'undefined') {
+    showInitError('Не удалось загрузить анимации. Обнови страницу.');
+    return;
+  }
+
+  try {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setClearColor(0x000000);
+    renderer.domElement.style.pointerEvents = 'none';
+    viewportContainer.appendChild(renderer.domElement);
+
+    camera.position.z = 25;
+
+    createParticles();
+    updateViewportLayout();
+    animate();
+  } catch (e) {
+    console.error('3D init failed:', e);
+    showInitError('Сфера не запустилась. Попробуй обновить страницу.');
+  }
+}
+
+function showInitError(message) {
+  if (!viewportContainer) return;
+  viewportContainer.innerHTML = `<p class="init-error">${message}</p>`;
+}
+
+function showFallbackAnswer(text) {
+  if (!viewportContainer) return;
+
+  let el = document.getElementById('fallbackAnswer');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'fallbackAnswer';
+    el.className = 'fallback-answer';
+    viewportContainer.appendChild(el);
+  }
+
+  el.textContent = text;
+  el.hidden = false;
+}
+
+function hideFallbackAnswer() {
+  const el = document.getElementById('fallbackAnswer');
+  if (el) el.hidden = true;
 }
 
 function createParticles() {
   const geometry = new THREE.BufferGeometry();
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
-
-  function sphericalDistribution(i) {
-    const phi = Math.acos(-1 + (2 * i) / count);
-    const theta = Math.sqrt(count * Math.PI) * phi;
-
-    return {
-      x: 8 * Math.cos(theta) * Math.sin(phi),
-      y: 8 * Math.sin(theta) * Math.sin(phi),
-      z: 8 * Math.cos(phi),
-    };
-  }
 
   for (let i = 0; i < count; i++) {
     const point = sphericalDistribution(i);
@@ -247,7 +280,7 @@ function hideTextAsync() {
 
 async function fetchAiAnswer(question, history, attempt = 1) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25000);
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
 
   try {
     const response = await fetch(`${getApiBase()}/api/ask`, {
@@ -303,7 +336,6 @@ async function runAskFlow(question) {
 
   try {
     startExplosion();
-    await delay(600);
 
     let answer;
     try {
@@ -315,15 +347,36 @@ async function runAskFlow(question) {
       answer = e.message || 'Не удалось получить ответ';
     }
 
-    showText(answer);
+    if (particles) {
+      await waitForMorphAnim();
+    } else {
+      await delay(300);
+    }
 
-    await delay(4000);
-    await hideTextAsync();
-    returnParticles();
-    await delay(2200);
+    if (particles) {
+      showText(answer);
+      await delay(4000);
+      await hideTextAsync();
+      returnParticles();
+      await waitForMorphAnim();
+    } else {
+      showFallbackAnswer(answer);
+      await delay(4000);
+      hideFallbackAnswer();
+    }
   } finally {
     setFormBusy(false);
   }
+}
+
+function waitForMorphAnim() {
+  if (!morphAnim?.active) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    morphAnim.onComplete = resolve;
+  });
 }
 
 function setupEventListeners() {
@@ -349,44 +402,62 @@ function setupEventListeners() {
   });
 }
 
-function startExplosion() {
-  currentState = 'exploding';
-
-  // Stop rotation
-  gsap.to(particles.rotation, { x: 0, y: 0, z: 0, duration: 0.3 });
-
-  // Explode particles outward
-  const positions = particles.geometry.attributes.position.array;
-  const targetPositions = new Float32Array(count * 3);
-
-  for (let i = 0; i < count; i++) {
-    const currentX = positions[i * 3];
-    const currentY = positions[i * 3 + 1];
-    const currentZ = positions[i * 3 + 2];
-
-    // Calculate direction from center and push outward
-    const distance = Math.sqrt(
-      currentX * currentX + currentY * currentY + currentZ * currentZ,
-    );
-    const multiplier = 3 + Math.random() * 2;
-
-    targetPositions[i * 3] = currentX * multiplier;
-    targetPositions[i * 3 + 1] = currentY * multiplier;
-    targetPositions[i * 3 + 2] = currentZ * multiplier;
+function startMorphAnim({ duration, ease, updatePosition, updateColor, onComplete }) {
+  if (morphAnim?.tween) {
+    morphAnim.tween.kill();
   }
 
-  // Animate explosion (slower)
-  for (let i = 0; i < positions.length; i += 3) {
-    gsap.to(particles.geometry.attributes.position.array, {
-      [i]: targetPositions[i],
-      [i + 1]: targetPositions[i + 1],
-      [i + 2]: targetPositions[i + 2],
-      duration: 2.0,
-      ease: 'power2.out',
-      onUpdate: () => {
-        particles.geometry.attributes.position.needsUpdate = true;
-      },
-    });
+  const nextAnim = {
+    active: true,
+    t: 0,
+    fromPositions: updatePosition
+      ? new Float32Array(particles.geometry.attributes.position.array)
+      : null,
+    toPositions: updatePosition ? new Float32Array(count * 3) : null,
+    fromColors: updateColor ? new Float32Array(particles.geometry.attributes.color.array) : null,
+    toColors: updateColor ? new Float32Array(count * 3) : null,
+    updatePosition,
+    updateColor,
+    onComplete: null,
+    tween: null,
+  };
+
+  nextAnim.tween = gsap.to(nextAnim, {
+    t: 1,
+    duration,
+    ease,
+    onComplete: () => {
+      nextAnim.active = false;
+      nextAnim.onComplete?.();
+      nextAnim.onComplete = null;
+      onComplete?.();
+    },
+  });
+
+  morphAnim = nextAnim;
+  return morphAnim;
+}
+
+function startExplosion() {
+  if (!particles) return;
+
+  currentState = 'exploding';
+
+  gsap.to(particles.rotation, { x: 0, y: 0, z: 0, duration: 0.3 });
+
+  const positions = particles.geometry.attributes.position.array;
+  const morph = startMorphAnim({
+    duration: 2,
+    ease: 'power2.out',
+    updatePosition: true,
+    updateColor: false,
+  });
+
+  for (let i = 0; i < count; i++) {
+    const multiplier = 3 + Math.random() * 2;
+    morph.toPositions[i * 3] = positions[i * 3] * multiplier;
+    morph.toPositions[i * 3 + 1] = positions[i * 3 + 1] * multiplier;
+    morph.toPositions[i * 3 + 2] = positions[i * 3 + 2] * multiplier;
   }
 
   gsap.to(particles.material, {
@@ -523,88 +594,90 @@ function showText(text) {
 }
 
 function returnParticles() {
+  if (!particles) return;
+
   currentState = 'returning';
 
-  const positions = particles.geometry.attributes.position.array;
-  const targetPositions = new Float32Array(count * 3);
-  const colors = particles.geometry.attributes.color.array;
-
-  function sphericalDistribution(i) {
-    const phi = Math.acos(-1 + (2 * i) / count);
-    const theta = Math.sqrt(count * Math.PI) * phi;
-
-    return {
-      x: 8 * Math.cos(theta) * Math.sin(phi),
-      y: 8 * Math.sin(theta) * Math.sin(phi),
-      z: 8 * Math.cos(phi),
-    };
-  }
+  const morph = startMorphAnim({
+    duration: 2,
+    ease: 'power2.inOut',
+    updatePosition: true,
+    updateColor: true,
+    onComplete: () => {
+      currentState = 'sphere';
+    },
+  });
 
   for (let i = 0; i < count; i++) {
     const point = sphericalDistribution(i);
 
-    targetPositions[i * 3] = point.x + (Math.random() - 0.5) * 0.5;
-    targetPositions[i * 3 + 1] = point.y + (Math.random() - 0.5) * 0.5;
-    targetPositions[i * 3 + 2] = point.z + (Math.random() - 0.5) * 0.5;
+    morph.toPositions[i * 3] = point.x + (Math.random() - 0.5) * 0.5;
+    morph.toPositions[i * 3 + 1] = point.y + (Math.random() - 0.5) * 0.5;
+    morph.toPositions[i * 3 + 2] = point.z + (Math.random() - 0.5) * 0.5;
 
     const depth =
       Math.sqrt(point.x * point.x + point.y * point.y + point.z * point.z) / 8;
     const color = new THREE.Color();
     color.setHSL(0.5 + depth * 0.2, 0.7, 0.4 + depth * 0.3);
 
-    colors[i * 3] = color.r;
-    colors[i * 3 + 1] = color.g;
-    colors[i * 3 + 2] = color.b;
+    morph.toColors[i * 3] = color.r;
+    morph.toColors[i * 3 + 1] = color.g;
+    morph.toColors[i * 3 + 2] = color.b;
   }
 
-  // Fade in particles
   gsap.to(particles.material, {
     opacity: 0.8,
     duration: 1.5,
     ease: 'power2.in',
   });
+}
 
-  for (let i = 0; i < positions.length; i += 3) {
-    gsap.to(particles.geometry.attributes.position.array, {
-      [i]: targetPositions[i],
-      [i + 1]: targetPositions[i + 1],
-      [i + 2]: targetPositions[i + 2],
-      duration: 2,
-      ease: 'power2.inOut',
-      onUpdate: () => {
-        particles.geometry.attributes.position.needsUpdate = true;
-      },
-    });
+function sphericalDistribution(i) {
+  const phi = Math.acos(-1 + (2 * i) / count);
+  const theta = Math.sqrt(count * Math.PI) * phi;
+
+  return {
+    x: 8 * Math.cos(theta) * Math.sin(phi),
+    y: 8 * Math.sin(theta) * Math.sin(phi),
+    z: 8 * Math.cos(phi),
+  };
+}
+
+function applyMorphAnim() {
+  if (!morphAnim?.active || !particles) return;
+
+  const positions = particles.geometry.attributes.position.array;
+  const colors = particles.geometry.attributes.color.array;
+  const { t, fromPositions, toPositions, fromColors, toColors, updatePosition, updateColor } =
+    morphAnim;
+
+  if (updatePosition) {
+    for (let i = 0; i < positions.length; i += 1) {
+      positions[i] = fromPositions[i] + (toPositions[i] - fromPositions[i]) * t;
+    }
+    particles.geometry.attributes.position.needsUpdate = true;
   }
 
-  for (let i = 0; i < colors.length; i += 3) {
-    gsap.to(particles.geometry.attributes.color.array, {
-      [i]: colors[i],
-      [i + 1]: colors[i + 1],
-      [i + 2]: colors[i + 2],
-      duration: 2,
-      ease: 'power2.inOut',
-      onUpdate: () => {
-        particles.geometry.attributes.color.needsUpdate = true;
-      },
-      onComplete: () => {
-        if (i === colors.length - 3) {
-          currentState = 'sphere';
-        }
-      },
-    });
+  if (updateColor) {
+    for (let i = 0; i < colors.length; i += 1) {
+      colors[i] = fromColors[i] + (toColors[i] - fromColors[i]) * t;
+    }
+    particles.geometry.attributes.color.needsUpdate = true;
   }
 }
 
 function animate() {
   requestAnimationFrame(animate);
 
-  // Rotate sphere only when in sphere state
+  applyMorphAnim();
+
   if (currentState === 'sphere' && particles) {
     particles.rotation.y += 0.002;
   }
 
-  renderer.render(scene, camera);
+  if (renderer && scene && camera) {
+    renderer.render(scene, camera);
+  }
 }
 
 init();
